@@ -1,16 +1,26 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/bennetseidelic/chirpy/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
-	apiCfg := apiConfig{}
+	godotenv.Load(".env")
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	dbQueries := database.New(db)
+	apiCfg := apiConfig{queries: dbQueries}
 
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("GET /api/healthz", handleReadiness)
@@ -20,7 +30,7 @@ func main() {
 	serveMux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(http.FileServer((http.Dir("."))))))
 
 	server := http.Server{Handler: serveMux, Addr: ":8080"}
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,6 +96,7 @@ func respondWithJSON(w http.ResponseWriter, code int, payload any) {
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	queries        *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
