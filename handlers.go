@@ -4,14 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/bennetseidelic/chirpy/internal/database"
 	"github.com/google/uuid"
 )
 
 type errorMsg struct {
 	Error string `json:"error"`
+}
+
+type chirpResponse struct {
+	Id        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserId    uuid.UUID `json:"user_id"`
 }
 
 func handleReadiness(responseWriter http.ResponseWriter, req *http.Request) {
@@ -21,37 +29,8 @@ func handleReadiness(responseWriter http.ResponseWriter, req *http.Request) {
 	responseWriter.Write([]byte("OK"))
 }
 
-func handleValidateChirp(w http.ResponseWriter, req *http.Request) {
-	type parameters struct {
-		Body string `json:"body"`
-	}
-	type cleanedMsg struct {
-		CleanedBody string `json:"cleaned_body"`
-	}
-	decoder := json.NewDecoder(req.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		errMsg := errorMsg{Error: "Something went wrong"}
-		respondWithJSON(w, 500, errMsg)
-		return
-	}
-	if len(params.Body) > 140 {
-		errMsg := errorMsg{Error: "Chirp is too long"}
-		respondWithJSON(w, 400, errMsg)
-		return
-	}
-
-	words := strings.Split(params.Body, " ")
-	for i, word := range words {
-		word := strings.ToLower(word)
-		if word == "kerfuffle" || word == "sharbert" || word == "fornax" {
-			words[i] = "****"
-		}
-	}
-
-	cleaned := cleanedMsg{CleanedBody: strings.Join(words, " ")}
-	respondWithJSON(w, 200, cleaned)
+func isValidChirp(chirp string) bool {
+	return len(chirp) <= 140
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload any) {
@@ -109,4 +88,71 @@ func (cfg *apiConfig) handleCreateUser(w http.ResponseWriter, req *http.Request)
 	}
 
 	respondWithJSON(w, 201, response{Id: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email})
+}
+
+func (cfg *apiConfig) handleCreateChirp(w http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		Body   string    `json:"body"`
+		UserId uuid.UUID `json:"user_id"`
+	}
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithJSON(w, 400, errorMsg{Error: "Bad Request"})
+		fmt.Println(err)
+		return
+	}
+	if !isValidChirp(params.Body) {
+		respondWithJSON(w, 400, errorMsg{Error: "Bad Request"})
+		fmt.Println(err)
+		return
+	}
+
+	chirp, err := cfg.db.CreateChirp(req.Context(), database.CreateChirpParams{Body: params.Body, UserID: params.UserId})
+	if err != nil {
+		respondWithJSON(w, 400, errorMsg{Error: "Bad Request"})
+		fmt.Println(err)
+		return
+	}
+
+	respondWithJSON(w, 201, chirpResponse{Id: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserId: chirp.UserID})
+}
+
+func (cfg *apiConfig) handleGetChirps(w http.ResponseWriter, req *http.Request) {
+
+	chirps, err := cfg.db.GetAllChirps(req.Context())
+	if err != nil {
+		respondWithJSON(w, 500, errorMsg{Error: "Something went wrong"})
+		return
+	}
+	chirpResponses := []chirpResponse{}
+	for _, chirp := range chirps {
+		chirpResponses = append(chirpResponses, chirpResponse{
+			Id:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserId:    chirp.UserID,
+		})
+	}
+
+	respondWithJSON(w, 200, chirpResponses)
+}
+
+func (cfg *apiConfig) handleGetChirp(w http.ResponseWriter, req *http.Request) {
+	chirpId := req.PathValue("chirpID")
+	chirpUuid, err := uuid.Parse(chirpId)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	chirp, err := cfg.db.GetChirp(req.Context(), chirpUuid)
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(404)
+		return
+	}
+
+	respondWithJSON(w, 200, chirpResponse{Id: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserId: chirp.UserID})
 }

@@ -23,8 +23,10 @@ func main() {
 	serveMux.HandleFunc("GET /api/healthz", handleReadiness)
 	serveMux.HandleFunc("GET /admin/metrics", apiCfg.handleFileserverHits)
 	serveMux.HandleFunc("POST /admin/reset", apiCfg.handleReset)
-	serveMux.HandleFunc("POST /api/validate_chirp", handleValidateChirp)
 	serveMux.HandleFunc("POST /api/users", apiCfg.handleCreateUser)
+	serveMux.HandleFunc("POST /api/chirps", apiCfg.handleCreateChirp)
+	serveMux.HandleFunc("GET /api/chirps", apiCfg.handleGetChirps)
+	serveMux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handleGetChirp)
 	serveMux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(http.FileServer((http.Dir("."))))))
 
 	server := http.Server{Handler: serveMux, Addr: ":8080"}
